@@ -1,0 +1,67 @@
+version: '3'
+
+services:
+  redis:
+    image: redis:latest
+    container_name: redis_cache
+
+  db:
+    image: mysql:8.0
+    container_name: mysql_db
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_DATABASE: students_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-psecret"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app-entry:
+    build: ./web
+    container_name: student_entry_app
+    ports:
+      - "5000:80"
+    environment:
+      - REDIS_HOST=redis
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=secret
+      - DB_NAME=students_db
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  app-results:
+    build: ./web
+    container_name: student_results_app
+    ports:
+      - "5001:80"
+    environment:
+      - REDIS_HOST=redis
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=secret
+      - DB_NAME=students_db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: ./worker
+    container_name: student_worker
+    environment:
+      - REDIS_HOST=redis
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=secret
+      - DB_NAME=students_db
+    depends_on:
+      - redis
+      - db
