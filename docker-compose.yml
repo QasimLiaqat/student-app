@@ -9,14 +9,15 @@ services:
     image: mysql:8.0
     container_name: mysql_db
     environment:
-      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: students_db
+
     ports:
       - "3306:3306"
     volumes:
       - ./mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-psecret"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -30,7 +31,7 @@ services:
       - REDIS_HOST=redis
       - DB_HOST=db
       - DB_USER=root
-      - DB_PASSWORD=secret
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=students_db
     depends_on:
       db:

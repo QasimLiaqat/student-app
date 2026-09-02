@@ -6,7 +6,7 @@ import mysql.connector
 redis_host = os.environ.get('REDIS_HOST', 'redis')
 db_host = os.environ.get('DB_HOST', 'db')
 db_user = os.environ.get('DB_USER', 'root')
-db_password = os.environ.get('DB_PASSWORD', 'secret')
+db_password = os.environ.get('DB_PASSWORD')
 db_name = os.environ.get('DB_NAME', 'students_db')
 
 print("Connecting to Redis...")
