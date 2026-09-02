@@ -11,45 +11,47 @@ app = Flask(__name__)
 
 db_host = os.environ.get("DB_HOST", "db")
 db_user = os.environ.get("DB_USER", "root")
-db_password = os.environ.get("DB_PASSWORD")
+db_password = os.environ.get("DB_PASSWORD", "secret")
 db_name = os.environ.get("DB_NAME", "students_db")
+db_port = int(os.environ.get("DB_PORT", "3306"))
+db_ssl = os.environ.get("DB_SSL", "false").lower() == "true"
 
 redis_host = os.environ.get("REDIS_HOST")
+redis_port = int(os.environ.get("REDIS_PORT", "6379"))
+
 r = None
 
 if redis and redis_host:
     try:
         r = redis.Redis(
             host=redis_host,
-            port=int(os.environ.get("REDIS_PORT", "6379")),
+            port=redis_port,
             decode_responses=True
         )
+        r.ping()
+        print("Redis connected successfully.")
     except Exception as e:
-        print(f"Redis initialization error: {e}")
+        print(f"Redis connection unavailable: {e}")
+        r = None
 
 
 def get_db_connection():
-    return mysql.connector.connect(
-        host=db_host,
-        user=db_user,
-        password=db_password,
-        database=db_name
-    )
+    config = {
+        "host": db_host,
+        "port": db_port,
+        "user": db_user,
+        "password": db_password,
+        "database": db_name
+    }
+
+    if db_ssl:
+        config["ssl_disabled"] = False
+
+    return mysql.connector.connect(**config)
 
 
 def init_db():
     try:
-        conn = mysql.connector.connect(
-            host=db_host,
-            user=db_user,
-            password=db_password
-        )
-
-        cursor = conn.cursor()
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{db_name}`")
-        cursor.close()
-        conn.close()
-
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -80,37 +82,58 @@ init_db()
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        name = request.form["name"]
-        roll = request.form["roll"]
-        phone = request.form["phone"]
-        cgpa = request.form["cgpa"]
-        degree = request.form["degree"]
+        name = request.form.get("name", "").strip()
+        roll = request.form.get("roll", "").strip()
+        phone = request.form.get("phone", "").strip()
+        cgpa = request.form.get("cgpa", "").strip()
+        degree = request.form.get("degree", "").strip()
+
+        if not all([name, roll, phone, cgpa, degree]):
+            return "All fields are required.", 400
 
         if r:
             try:
-                r.lpush(
-                    "student_queue",
-                    f"Name: {name}, Roll: {roll}, "
-                    f"Phone: {phone}, CGPA: {cgpa}, Degree: {degree}"
+                queue_data = (
+                    f"Name: {name}, "
+                    f"Roll: {roll}, "
+                    f"Phone: {phone}, "
+                    f"CGPA: {cgpa}, "
+                    f"Degree: {degree}"
                 )
+
+                r.lpush("student_queue", queue_data)
+
             except Exception as e:
                 print(f"Redis queue error: {e}")
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        conn = None
+        cursor = None
 
-        cursor.execute(
-            """
-            INSERT INTO students
-            (name, roll, phone, cgpa, degree)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (name, roll, phone, cgpa, degree)
-        )
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
 
-        conn.commit()
-        cursor.close()
-        conn.close()
+            cursor.execute(
+                """
+                INSERT INTO students
+                (name, roll, phone, cgpa, degree)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (name, roll, phone, cgpa, degree)
+            )
+
+            conn.commit()
+
+        except Exception as e:
+            print(f"Database insert error: {e}")
+            return "Unable to save student data.", 500
+
+        finally:
+            if cursor:
+                cursor.close()
+
+            if conn:
+                conn.close()
 
         return redirect(url_for("index"))
 
@@ -119,25 +142,46 @@ def index():
 
 @app.route("/results")
 def results():
+    conn = None
+    cursor = None
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        cursor.execute("SELECT * FROM students ORDER BY id DESC")
+        cursor.execute("""
+            SELECT id, name, roll, phone, cgpa, degree
+            FROM students
+            ORDER BY id DESC
+        """)
+
         students = cursor.fetchall()
 
-        cursor.close()
-        conn.close()
+        return render_template(
+            "results.html",
+            students=students
+        )
 
     except Exception as e:
         print(f"Results database error: {e}")
-        students = []
 
-    return render_template("results.html", students=students)
+        return render_template(
+            "results.html",
+            students=[]
+        )
+
+    finally:
+        if cursor:
+            cursor.close()
+
+        if conn:
+            conn.close()
 
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "80"))
+
     app.run(
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", "80"))
+        port=port
     )
